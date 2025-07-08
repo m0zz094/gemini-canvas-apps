@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generatore Set Magic (Ottimizzato)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        @font-face {
+            font-family: 'Beleren Smallcaps';
+            src: url('https://github.com/Hakkura/Magic-Fonts/raw/main/fonts/belerensmallcaps-bold.ttf') format('truetype');
+            font-weight: bold;
+            font-display: swap;
+        }
+        @font-face {
+            font-family: 'MPlantin';
+            src: url('https://github.com/Hakkura/Magic-Fonts/raw/main/fonts/mplantin.ttf') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+            font-display: swap;
+        }
+        @font-face {
+            font-family: 'MPlantin';
+            src: url('https://github.com/Hakkura/Magic-Fonts/raw/main/fonts/mplantin-italic.ttf') format('truetype');
+            font-weight: normal;
+            font-style: italic;
+            font-display: swap;
+        }
+
+        body {
+            font-family: 'MPlantin', 'Inter', sans-serif;
+            background-color: #111827;
+        }
+        .beleren-font {
+            font-family: 'Beleren Smallcaps', sans-serif;
+        }
+        .card-wrapper {
+            width: 100%;
+            max-width: 300px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+            position: relative;
+        }
+        .card-wrapper canvas {
+            width: 100%;
+            height: auto;
+            border-radius: 4.75%;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.5);
+            transition: transform 0.3s ease;
+        }
+        .card-wrapper canvas:hover {
+            transform: scale(1.05) rotateZ(1deg);
+        }
+        #initial-loading-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(17, 24, 39, 0.95);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .card-loader {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(31, 41, 55, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4.75%;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white">
+
+    <div id="initial-loading-overlay">
+        <div class="text-center">
+             <svg class="animate-spin h-10 w-10 text-white mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+             <p id="loading-text" class="mt-4 text-xl text-gray-300 beleren-font">Caricamento Asset e Font...</p>
+        </div>
+    </div>
+
+    <div class="container mx-auto px-4 py-8">
+        <header class="text-center mb-12">
+            <h1 class="beleren-font text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-orange-400 to-red-500">
+                Generatore di Set MTG
+            </h1>
+            <p class="text-gray-400 mt-2">Crea carte di Magic ad alta fedeltà, pronte per essere scaricate e stampate.</p>
+        </header>
+
+        <div class="max-w-2xl mx-auto bg-gray-800/50 backdrop-blur-sm rounded-xl shadow-2xl p-8 mb-12">
+            <div class="space-y-6">
+                <div>
+                    <label for="set-theme" class="block text-lg font-medium text-gray-300 mb-2">Tema del Set</label>
+                    <input type="text" id="set-theme" class="w-full bg-gray-700 text-white rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="Es. Impero Romano intergalattico...">
+                </div>
+                <div>
+                    <label for="card-count" class="block text-lg font-medium text-gray-300 mb-2">Numero di Carte da Generare</label>
+                    <input type="number" id="card-count" class="w-full bg-gray-700 text-white rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500" value="2" min="1" max="300">
+                </div>
+            </div>
+            <div class="mt-8 text-center">
+                <button id="generate-btn" disabled class="beleren-font bg-gray-500 cursor-not-allowed text-white font-bold py-3 px-10 rounded-lg shadow-lg transition-all duration-300">
+                    Caricamento...
+                </button>
+                <button id="stop-btn" class="hidden beleren-font bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-10 rounded-lg shadow-lg transition-all duration-300">
+                    Interrompi Generazione
+                </button>
+            </div>
+        </div>
+
+        <div id="bulk-download-container" class="hidden text-center my-6">
+             <button id="bulk-download-btn" class="beleren-font bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg shadow-lg">
+                Scarica Tutte le Carte (.zip)
+            </button>
+        </div>
+
+        <div id="loading-indicator" class="hidden text-center my-10">
+            <svg class="animate-spin h-8 w-8 text-white mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+            <p id="generation-status" class="mt-4 text-gray-400">L'AI sta forgiando le carte...</p>
+        </div>
+        
+        <div id="error-message" class="hidden text-center my-10 bg-red-500/20 text-red-300 p-4 rounded-lg"></div>
+
+        <div id="card-display-area" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-8 justify-items-center">
+        </div>
+    </div>
+
+<script>
+    const generateBtn = document.getElementById('generate-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    const bulkDownloadContainer = document.getElementById('bulk-download-container');
+    const bulkDownloadBtn = document.getElementById('bulk-download-btn');
+    const loadingIndicator = document.getElementById('loading-indicator');
+    const generationStatus = document.getElementById('generation-status');
+    const cardDisplayArea = document.getElementById('card-display-area');
+    const errorMessage = document.getElementById('error-message');
+    const initialLoadingOverlay = document.getElementById('initial-loading-overlay');
+
+    let isGenerationStopped = false;
+
+    const CARD_WIDTH = 375;
+    const CARD_HEIGHT = 523;
+    const assets = {
+        frames: {},
+        ptBox: {},
+        symbols: {}
+    };
+
+    const MTG_CARDSMITH_BASE = 'https://mtgcardsmith.com';
+
+    const FRAME_ASSETS = {
+        'Standard Colors': { 'White': '/moderator/thumb/custom_666b5f5b0a7b2.jpg?v=1', 'Blue': '/moderator/thumb/custom_666b66c13041d.jpg?v=1', 'Black': '/moderator/thumb/custom_666b62e1659a8.jpg?v=1', 'Red': '/moderator/thumb/custom_666b637f49d3c.jpg?v=1', 'Green': '/moderator/thumb/custom_666b647f32017.jpg?v=1', 'Artifact': '/moderator/thumb/custom_666b64b05d996.jpg?v=1', 'Colorless': '/moderator/thumb/custom_666b64d958319.jpg?v=1', 'Land': '/moderator/thumb/custom_666b64d958319.jpg?v=1', 'Gold': '/moderator/thumb/custom_666ba621b8c9d.png?v=1' },
+        'Borderless': { 'White': '/moderator/thumb/custom_66637c40bf2a2.png?v=1', 'White Legend': '/moderator/thumb/custom_666389e5e46a1.png?v=1', 'Blue': '/moderator/thumb/custom_6663822aa3c55.png?v=1', 'Blue Legend': '/moderator/thumb/custom_666382be85178.png?v=1', 'Black': '/moderator/thumb/custom_6663830c90efd.png?v=1', 'Black Legend': '/moderator/thumb/custom_666383273f96e.png?v=1', 'Red': '/moderator/thumb/custom_6663833f965ba.png?v=1', 'Red Legend': '/moderator/thumb/custom_66638376b7b51.png?v=1', 'Green': '/moderator/thumb/custom_666388ec7e198.png?v=1', 'Green Legend': '/moderator/thumb/custom_666389293baab.png?v=1', 'Gold': '/moderator/thumb/custom_66638b4a98a6e.png?v=1', 'Gold Legend': '/moderator/thumb/custom_66638b876689f.png?v=1', 'Artifact': '/moderator/thumb/custom_66638ba07c65e.png?v=1', 'Artifact Legend': '/moderator/thumb/custom_66638bcd6c326.png?v=1', 'Land': '/moderator/thumb/custom_66638ca862a35.png?v=1', 'Land Legend': '/moderator/thumb/custom_66638ce7c7962.png?v=1', 'Colorless': '/moderator/thumb/custom_66638d05e06de.png?v=1', 'Colorless Legend': '/moderator/thumb/custom_66638d29593a9.png?v=1' }
+    };
+    
+    const PT_BOX_ASSETS = {
+        'Standard': { 'Black': '/moderator/ptImgs/custom_66638540b2307.png', 'White': '/moderator/ptImgs/custom_666383e4ba24e.png', 'Blue': '/moderator/ptImgs/custom_66638454b50c0.png', 'Red': '/moderator/ptImgs/custom_6663850c4c508.png', 'Green': '/moderator/ptImgs/custom_6663851f571d5.png', 'Artifact': '/moderator/ptImgs/custom_66638535808c3.png', 'Colorless': '/moderator/ptImgs/custom_66638540b2307.png', 'Gold': '/moderator/ptImgs/custom_66576b60da360.png' },
+        'Borderless': { 'Black': '/moderator/ptImgs/custom_6663824ab6918.png', 'White': '/moderator/ptImgs/custom_6663811764b39.png', 'Blue': '/moderator/ptImgs/custom_66638241c552b.png', 'Red': '/moderator/ptImgs/custom_6663824f56d90.png', 'Green': '/moderator/ptImgs/custom_6663825ebab9f.png', 'Artifact': '/moderator/ptImgs/custom_66638267b0ce4.png', 'Colorless': '/moderator/ptImgs/custom_6663827878b84.png', 'Gold': '/moderator/ptImgs/custom_666382623fb86.png' }
+    };
+
+    function loadImage(src) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = "Anonymous";
+            img.onload = () => resolve(img);
+            img.onerror = () => reject(`Impossibile caricare l'asset da ${src}`);
+            img.src = src;
+        });
+    }
+
+    async function preloadAssets() {
+        const assetPromises = [];
+        for (const style in FRAME_ASSETS) {
+            if (!assets.frames[style]) assets.frames[style] = {};
+            for (const color in FRAME_ASSETS[style]) {
+                const url = MTG_CARDSMITH_BASE + FRAME_ASSETS[style][color];
+                assetPromises.push(loadImage(url).then(img => {
+                    assets.frames[style][color] = img;
+                }));
+            }
+        }
+        for (const style in PT_BOX_ASSETS) {
+             if (!assets.ptBox[style]) assets.ptBox[style] = {};
+            for (const color in PT_BOX_ASSETS[style]) {
+                const url = MTG_CARDSMITH_BASE + PT_BOX_ASSETS[style][color];
+                assetPromises.push(loadImage(url).then(img => {
+                    assets.ptBox[style][color] = img;
+                }));
+            }
+        }
+
+        try {
+            await Promise.all([
+                ...assetPromises,
+                document.fonts.ready,
+                preloadScryfallSymbols()
+            ]);
+            
+            console.log('Tutti gli asset e i font sono stati caricati.');
+            initialLoadingOverlay.style.display = 'none';
+            generateBtn.disabled = false;
+            generateBtn.textContent = 'Genera Carte';
+            generateBtn.className = 'beleren-font bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold py-3 px-10 rounded-lg shadow-lg transform hover:scale-105 transition-transform duration-300';
+        } catch (error) {
+            console.error(error);
+            initialLoadingOverlay.innerHTML = `<div class="text-center text-red-400 p-8"><p class="beleren-font text-2xl">Errore Critico</p><p class="mt-2">${error}</p><p class="text-sm mt-2">Nota: Il caricamento diretto da mtgcardsmith.com potrebbe essere bloccato dal browser per motivi di sicurezza (CORS).</p></div>`;
+        }
+    }
+    
+    async function preloadScryfallSymbols() {
+        try {
+            const response = await fetch('https://api.scryfall.com/symbology');
+            if (!response.ok) throw new Error(`API Scryfall per simbologia ha risposto con ${response.status}`);
+            const result = await response.json();
+            const symbolPromises = result.data.map(symbolData => {
+                return new Promise(async (resolve) => {
+                    try {
+                        await new Promise(r => setTimeout(r, 50)); // Rate limit
+                        const symbolImage = await loadImage(symbolData.svg_uri, true);
+                        assets.symbols[symbolData.symbol] = symbolImage;
+                    } catch (e) {
+                         console.error(`Fallito il caricamento del simbolo: ${symbolData.symbol}`);
+                    }
+                    resolve();
+                });
+            });
+            await Promise.all(symbolPromises);
+        } catch (error) {
+            console.error("Errore fatale nel caricare i simboli da Scryfall:", error);
+            throw error;
+        }
+    }
+
+    function getFrameAsset(cardData) {
+        const isLegendary = cardData.type.toLowerCase().includes('leggendario') || cardData.type.toLowerCase().includes('leggendaria');
+        const frameStyle = cardData.frame_style || 'Standard Colors';
+        let colorKey = cardData.colorIdentity;
+        if (isLegendary && (frameStyle === 'Borderless' || frameStyle === 'Full Art Legendary')) {
+            colorKey += ' Legend';
+        }
+        return assets.frames[frameStyle][colorKey] || assets.frames['Standard Colors'][cardData.colorIdentity] || assets.frames['Standard Colors'].Artifact;
+    }
+    
+    function getPtBoxAsset(cardData) {
+        const frameStyle = cardData.frame_style === 'Borderless' ? 'Borderless' : 'Standard';
+        return assets.ptBox[frameStyle][cardData.colorIdentity] || assets.ptBox[frameStyle].Artifact;
+    }
+
+    async function renderCardOnCanvas(cardData, canvas) {
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+        
+        const frame = getFrameAsset(cardData);
+        const isBorderless = cardData.frame_style === 'Borderless';
+        
+        if (cardData.artImage && cardData.artImage.complete) {
+            let boxX = 28, boxY = 55, boxWidth = 319, boxHeight = 236;
+            if (isBorderless) {
+                 boxX = 0; boxY = 0; boxWidth = CARD_WIDTH; boxHeight = CARD_HEIGHT;
+            }
+            
+            const imgWidth = cardData.artImage.width;
+            const imgHeight = cardData.artImage.height;
+            const boxRatio = boxWidth / boxHeight;
+            const imgRatio = imgWidth / imgHeight;
+            
+            let finalWidth, finalHeight, finalX, finalY;
+
+            if (imgRatio > boxRatio) {
+                finalHeight = boxHeight;
+                finalWidth = finalHeight * imgRatio;
+                finalX = boxX - (finalWidth - boxWidth) / 2;
+                finalY = boxY;
+            } else {
+                finalWidth = boxWidth;
+                finalHeight = finalWidth / imgRatio;
+                finalX = boxX;
+                finalY = boxY - (finalHeight - boxHeight) / 2;
+            }
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(boxX, boxY, boxWidth, boxHeight);
+            ctx.clip();
+            ctx.drawImage(cardData.artImage, finalX, finalY, finalWidth, finalHeight);
+            ctx.restore();
+        }
+
+        if (frame && frame.complete) {
+            ctx.drawImage(frame, 0, 0, CARD_WIDTH, CARD_HEIGHT);
+        }
+
+        ctx.fillStyle = isBorderless ? 'white' : 'black';
+        if(isBorderless) {
+            ctx.shadowColor = 'rgba(0,0,0,0.8)';
+            ctx.shadowBlur = 4;
+            ctx.shadowOffsetX = 2;
+            ctx.shadowOffsetY = 2;
+        }
+
+        ctx.font = "bold 18px 'Beleren Smallcaps'";
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(cardData.name, 32, 40); 
+
+        ctx.font = "bold 16px 'Beleren Smallcaps'";
+        ctx.fillText(cardData.type, 32, 310);
+        
+        drawSetSymbol(ctx, cardData.rarity, 341, 310);
+        
+        ctx.fillStyle = isBorderless ? 'white' : 'black';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        
+        const { abilityText, flavorText } = separateTexts(cardData.text);
+        let textY = await drawTextWithMana(ctx, abilityText, 35, 346, 305, 18); 
+
+        if (flavorText) {
+            ctx.font = "italic 15px 'MPlantin'";
+            await drawTextWithMana(ctx, flavorText, 35, textY + 18, 305, 18);
+        }
+
+
+        await drawManaCost(ctx, cardData.manaCost, 345, 40);
+        
+        if (cardData.power && cardData.toughness && cardData.power !== 'null' && cardData.toughness !== 'null') {
+            const ptBox = getPtBoxAsset(cardData);
+            if (ptBox && ptBox.complete) {
+                ctx.drawImage(ptBox, 295, 470, 60, 30);
+            }
+            ctx.fillStyle = isBorderless ? 'white' : 'black';
+            ctx.font = "bold 22px 'Beleren Smallcaps'";
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(`${cardData.power}/${cardData.toughness}`, 325, 485);
+        }
+        ctx.restore();
+    }
+    
+    function separateTexts(fullText) {
+        const parts = fullText.split('*');
+        const abilityText = parts[0].trim();
+        const flavorText = parts.length > 1 ? `*${parts.slice(1).join('*').trim()}` : '';
+        return { abilityText, flavorText };
+    }
+
+    async function drawManaCost(ctx, cost, x, y) {
+        if (!cost) return;
+        const symbols = cost.match(/\{[^{}]+\}/g) || [];
+        let currentX = x;
+        const symbolSize = 20;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        for (let i = symbols.length - 1; i >= 0; i--) {
+            const symbolImage = assets.symbols[symbols[i]];
+            if (symbolImage && symbolImage.complete) {
+                ctx.drawImage(symbolImage, currentX - symbolSize, y - symbolSize/2, symbolSize, symbolSize);
+                currentX -= (symbolSize + 2);
+            }
+        }
+    }
+    
+    function drawSetSymbol(ctx, rarity, x, y) {
+        const radius = 8;
+        const centerX = x - radius;
+        const centerY = y;
+
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI, false);
+
+        switch (rarity) {
+            case 'Uncommon':
+                ctx.fillStyle = '#c0c0c0'; // Silver
+                break;
+            case 'Rare':
+                ctx.fillStyle = '#ffd700'; // Gold
+                break;
+            case 'Mythic':
+                ctx.fillStyle = '#ff4500'; // Orange-Red
+                break;
+            case 'Common':
+            default:
+                ctx.fillStyle = 'black';
+                break;
+        }
+        ctx.fill();
+    }
+
+    async function drawTextWithMana(ctx, text, x, y, maxWidth, initialLineHeight) {
+        if (!text) return 0;
+        
+        let fontSize = 15;
+        let lineHeight = 18;
+        
+        const calculateTextHeight = (txt, fSize, lHeight) => {
+            ctx.font = `${fSize}px 'MPlantin'`;
+            let tempX = x;
+            let tempY = y;
+            const parts = txt.split(/(\{[^{}]+\}|\n)/g);
+            for (const part of parts) {
+                if (!part) continue;
+                if (part === '\n') {
+                    tempX = x;
+                    tempY += lHeight;
+                    continue;
+                }
+                if (part.startsWith('{')) {
+                    if (tempX + fSize > x + maxWidth) {
+                        tempX = x;
+                        tempY += lHeight;
+                    }
+                    tempX += fSize;
+                } else {
+                    const words = part.split(' ');
+                    for (const word of words) {
+                        if (!word) continue;
+                        const wordWidth = ctx.measureText(word + ' ').width;
+                        if (tempX + wordWidth > x + maxWidth && tempX > x) {
+                            tempX = x;
+                            tempY += lHeight;
+                        }
+                        tempX += wordWidth;
+                    }
+                }
+            }
+            return tempY - y + lHeight;
+        };
+
+        while (fontSize > 10) {
+            const totalHeight = calculateTextHeight(text, fontSize, lineHeight);
+            if (totalHeight <= 120) break; // Max text box height
+            fontSize -= 1;
+            lineHeight = Math.floor(initialLineHeight * (fontSize / 15));
+        }
+
+        ctx.font = `${fontSize}px 'MPlantin'`;
+
+        let currentX = x;
+        let currentY = y;
+        const parts = text.split(/(\{[^{}]+\}|\n)/g);
+        const symbolSize = fontSize * 1.1;
+
+        for (const part of parts) {
+            if (!part) continue;
+            if (part === '\n') {
+                currentX = x;
+                currentY += lineHeight;
+                continue;
+            }
+            if (part.startsWith('{')) {
+                const symbolImage = assets.symbols[part];
+                if (symbolImage && symbolImage.complete) {
+                    if (currentX + symbolSize > x + maxWidth) {
+                        currentX = x;
+                        currentY += lineHeight;
+                    }
+                    ctx.drawImage(symbolImage, currentX, currentY - symbolSize + (lineHeight - fontSize), symbolSize, symbolSize);
+                    currentX += symbolSize;
+                }
+            } else {
+                const words = part.split(' ');
+                for(let i = 0; i < words.length; i++) {
+                    const word = words[i];
+                    if (!word) continue;
+                    const wordWidth = ctx.measureText(word + ' ').width;
+                    if (currentX + wordWidth > x + maxWidth && currentX > x) {
+                        currentX = x;
+                        currentY += lineHeight;
+                    }
+                    ctx.fillText(word, currentX, currentY);
+                    currentX += ctx.measureText(word + ' ').width;
+                }
+            }
+        }
+        return currentY;
+    }
+
+    function downloadCard(canvas, cardName) {
+        const link = document.createElement('a');
+        link.download = `${cardName.replace(/[ /\\?%*:|"<>]/g, '_')}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+    }
+
+    const showLoading = (isLoading, message = "L'AI sta forgiando le carte...") => {
+        loadingIndicator.classList.toggle('hidden', !isLoading);
+        generationStatus.textContent = message;
+        generateBtn.disabled = isLoading;
+        stopBtn.classList.toggle('hidden', !isLoading);
+        if(isLoading) {
+            generateBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            generateBtn.textContent = "Generazione...";
+        } else {
+            generateBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            generateBtn.textContent = 'Genera Carte';
+        }
+    };
+
+    const showError = (message) => {
+        errorMessage.textContent = message;
+        errorMessage.classList.remove('hidden');
+    }
+    
+    document.addEventListener('DOMContentLoaded', preloadAssets);
+
+    stopBtn.addEventListener('click', () => {
+        isGenerationStopped = true;
+    });
+
+    // ** NUOVA FUNZIONE: Processa la coda di carte una alla volta **
+    async function processCardQueue(cardElements, index) {
+        // Condizione di uscita: fine della coda o interruzione utente
+        if (index >= cardElements.length || isGenerationStopped) {
+            showLoading(false, isGenerationStopped ? "Generazione interrotta." : "Generazione completata!");
+            if (cardElements.length > 0 && !isGenerationStopped) {
+                bulkDownloadContainer.classList.remove('hidden');
+            }
+            return;
+        }
+
+        const el = cardElements[index];
+        showLoading(true, `Generando arte per "${el.cardData.name}" (${index + 1}/${cardElements.length})...`);
+        
+        const artPrompt = `Magic: The Gathering card art, epic, high fantasy digital painting. Subject: ${el.cardData.artDescription}`;
+        const imagePayload = { instances: [{ prompt: artPrompt }], parameters: { "sampleCount": 1 } };
+        const apiKey = ""; // Gestita dall'ambiente
+        const imageUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`;
+        
+        try {
+            const imageResponse = await fetch(imageUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(imagePayload) });
+            if (imageResponse.ok) {
+                const imageResult = await imageResponse.json();
+                if (imageResult.predictions && imageResult.predictions[0].bytesBase64Encoded) {
+                    el.cardData.artImage = await loadImage(`data:image/png;base64,${imageResult.predictions[0].bytesBase64Encoded}`);
+                }
+            } else {
+                 throw new Error(`API Immagine: ${imageResponse.status}`);
+            }
+        } catch (imgError) {
+            console.error(`Errore generazione immagine per ${el.cardData.name}:`, imgError);
+            el.container.innerHTML += `<p class="text-red-400 text-xs text-center">Errore Immagine</p>`;
+        }
+
+        await renderCardOnCanvas(el.cardData, el.canvas);
+        el.loadingAnimation.remove();
+        
+        // Pausa di 1.2 secondi prima di processare la carta successiva
+        setTimeout(() => {
+            processCardQueue(cardElements, index + 1);
+        }, 1200);
+    }
+
+
+    generateBtn.addEventListener('click', async () => {
+        isGenerationStopped = false;
+        const theme = document.getElementById('set-theme').value;
+        const count = document.getElementById('card-count').value;
+        
+        if (!theme) {
+            showError('Per favore, inserisci un tema per il set.');
+            return;
+        }
+        
+        showLoading(true, `Recupero i dati per ${count} carte...`);
+        cardDisplayArea.innerHTML = '';
+        errorMessage.classList.add('hidden');
+        bulkDownloadContainer.classList.add('hidden');
+
+        const textGenPrompt = `
+        Crea ${count} carte di Magic: The Gathering con tema "${theme}". Non creare carte di tipo Terra. La maggior parte delle carte deve essere monocolore.
+        Per ogni carta, fornisci un oggetto JSON con:
+        - name: (italiano)
+        - manaCost: notazione standard (es. {2}{W}{U})
+        - colorIdentity: uno tra 'White', 'Blue', 'Black', 'Red', 'Green', 'Gold', 'Artifact', 'Colorless'.
+        - rarity: uno tra 'Common', 'Uncommon', 'Rare', 'Mythic'.
+        - type: (italiano), includi 'leggendario' o 'leggendaria' se appropriato.
+        - frame_style: uno tra 'Standard Colors', 'Borderless'.
+        - text: (italiano) con simboli di mana nel formato {sym}. Dopo ogni abilità con parola chiave (es. Volare, Travolgere), inserisci un carattere di a capo (\\n).
+        - flavorText: (testo di colore in corsivo, opzionale)
+        - power: (solo per creature)
+        - toughness: (solo per creature)
+        - artDescription: descrizione vivida per un'AI, stile fantasy epico.
+        Rispondi solo con un array di oggetti JSON.
+        `;
+
+        try {
+            const textGenPayload = { 
+                contents: [{ role: "user", parts: [{ text: textGenPrompt }] }],
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "ARRAY",
+                        items: {
+                            type: "OBJECT",
+                            properties: {
+                                "name": { "type": "STRING" }, "manaCost": { "type": "STRING" },
+                                "colorIdentity": { "type": "STRING" }, "rarity": { "type": "STRING" },
+                                "type": { "type": "STRING" }, "frame_style": { "type": "STRING" },
+                                "text": { "type": "STRING" }, "flavorText": { "type": "STRING" },
+                                "power": { "type": "STRING" }, "toughness": { "type": "STRING" },
+                                "artDescription": { "type": "STRING" },
+                            },
+                            required: ["name", "manaCost", "colorIdentity", "rarity", "type", "frame_style", "text", "artDescription"]
+                        }
+                    }
+                }
+            };
+            
+            const apiKey = "";
+            const textGenApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+            
+            const textResponse = await fetch(textGenApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(textGenPayload) });
+            if (!textResponse.ok) throw new Error(`API testo: ${textResponse.status}`);
+            const textResult = await textResponse.json();
+            const cardsData = JSON.parse(textResult.candidates[0].content.parts[0].text);
+
+            const cardElements = cardsData.map(cardData => {
+                const container = document.createElement('div');
+                container.className = 'card-wrapper';
+                const canvas = document.createElement('canvas');
+                canvas.width = CARD_WIDTH;
+                canvas.height = CARD_HEIGHT;
+                
+                const loadingAnimation = container.appendChild(document.createElement('div'));
+                loadingAnimation.className = 'card-loader';
+                loadingAnimation.innerHTML = '<svg class="animate-spin h-8 w-8 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>';
+                
+                const downloadButton = document.createElement('button');
+                downloadButton.textContent = 'Scarica';
+                downloadButton.className = 'mt-2 bg-green-600 hover:bg-green-700 text-white font-bold py-1 px-3 rounded-lg text-sm';
+                downloadButton.onclick = () => downloadCard(canvas, cardData.name);
+                
+                container.appendChild(canvas);
+                container.appendChild(downloadButton);
+                cardDisplayArea.appendChild(container);
+                return { container, canvas, cardData, loadingAnimation };
+            });
+
+            // Avvia la coda di elaborazione sequenziale
+            processCardQueue(cardElements, 0);
+
+        } catch (error) {
+            console.error('Errore durante la generazione:', error);
+            showError(`Si è verificato un errore: ${error.message}.`);
+            showLoading(false);
+        }
+    });
+    
+    bulkDownloadBtn.addEventListener('click', () => {
+        const zip = new JSZip();
+        const canvases = cardDisplayArea.querySelectorAll('canvas');
+        canvases.forEach((canvas, i) => {
+            const cardName = canvas.closest('.card-wrapper').querySelector('button').onclick.toString().split("'")[1] || `carta-${i+1}`;
+            const dataURL = canvas.toDataURL('image/png');
+            zip.file(`${cardName}.png`, dataURL.split(',')[1], {base64: true});
+        });
+        zip.generateAsync({type:"blob"}).then(function(content) {
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(content);
+            link.download = "carte_generate.zip";
+            link.click();
+        });
+    });
+
+</script>
+</body>
+</html>
