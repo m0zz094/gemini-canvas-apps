@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Generatore Set Magic (Bugfix e Stabilità)</title>
+    <title>Generatore Set Magic (Generazione Stabile)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
@@ -76,7 +76,36 @@
             justify-content: center;
             border-radius: 4.75%;
         }
-        /* Stili per il form di modifica inline */
+        #loading-indicator {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 50;
+            background-color: rgba(17, 24, 39, 0.9);
+            backdrop-filter: blur(4px);
+            padding: 0.75rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+        @media (min-width: 768px) {
+            #loading-indicator {
+                position: static;
+                background-color: transparent;
+                backdrop-filter: none;
+                padding: 0;
+                box-shadow: none;
+            }
+            #loading-indicator.desktop-sticky {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                background-color: rgba(17, 24, 39, 0.9);
+                backdrop-filter: blur(4px);
+                padding: 0.75rem;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            }
+        }
         .edit-form {
             width: 100%;
             background-color: #1f2937;
@@ -123,7 +152,7 @@
                 </div>
                 <div>
                     <label for="card-count" class="block text-lg font-medium text-gray-300 mb-2">Numero di Carte da Generare</label>
-                    <input type="number" id="card-count" class="w-full bg-gray-700 text-white rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500" value="2" min="1" max="300">
+                    <input type="number" id="card-count" class="w-full bg-gray-700 text-white rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500" value="20" min="1" max="300">
                 </div>
             </div>
             <div class="mt-8 text-center">
@@ -143,8 +172,13 @@
         </div>
 
         <div id="loading-indicator" class="hidden text-center my-10">
-            <svg class="animate-spin h-8 w-8 text-white mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-            <p id="generation-status" class="mt-4 text-gray-400">L'AI sta forgiando le carte...</p>
+            <div class="flex items-center justify-center">
+                 <svg class="animate-spin h-8 w-8 text-white mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <div>
+                    <p id="generation-status" class="text-gray-300">L'AI sta forgiando le carte...</p>
+                    <p id="time-estimation" class="text-gray-400 text-sm"></p>
+                </div>
+            </div>
         </div>
         
         <div id="error-message" class="hidden text-center my-10 bg-red-500/20 text-red-300 p-4 rounded-lg"></div>
@@ -161,13 +195,17 @@
     const bulkDownloadBtn = document.getElementById('bulk-download-btn');
     const loadingIndicator = document.getElementById('loading-indicator');
     const generationStatus = document.getElementById('generation-status');
+    const timeEstimation = document.getElementById('time-estimation');
     const cardDisplayArea = document.getElementById('card-display-area');
     const errorMessage = document.getElementById('error-message');
     const initialLoadingOverlay = document.getElementById('initial-loading-overlay');
     
     // State
     let isGenerationStopped = false;
-    let generatedCards = []; // ** FIX: Store card data in memory to preserve image objects
+    let generatedCards = []; 
+    let generationTimeoutId = null;
+    let generationStartTime = 0;
+    let loadingIndicatorOriginalTop = 0;
 
     // Constants
     const CARD_WIDTH = 375;
@@ -182,8 +220,7 @@
         'Standard': { 'Black': '/moderator/ptImgs/custom_66638540b2307.png', 'White': '/moderator/ptImgs/custom_666383e4ba24e.png', 'Blue': '/moderator/ptImgs/custom_66638454b50c0.png', 'Red': '/moderator/ptImgs/custom_6663850c4c508.png', 'Green': '/moderator/ptImgs/custom_6663851f571d5.png', 'Artifact': '/moderator/ptImgs/custom_66638535808c3.png', 'Colorless': '/moderator/ptImgs/custom_66638540b2307.png', 'Gold': '/moderator/ptImgs/custom_66576b60da360.png' },
         'Borderless': { 'Black': '/moderator/ptImgs/custom_6663824ab6918.png', 'White': '/moderator/ptImgs/custom_6663811764b39.png', 'Blue': '/moderator/ptImgs/custom_66638241c552b.png', 'Red': '/moderator/ptImgs/custom_6663824f56d90.png', 'Green': '/moderator/ptImgs/custom_6663825ebab9f.png', 'Artifact': '/moderator/ptImgs/custom_66638267b0ce4.png', 'Colorless': '/moderator/ptImgs/custom_6663827878b84.png', 'Gold': '/moderator/ptImgs/custom_666382623fb86.png' }
     };
-    
-    // ** FIX: API Key in global scope **
+    const ITALIAN_KEYWORDS = ['Attacco improvviso','Cautela','Difensore','Doppio attacco','Incanta','Equipaggia','Lampo','Volare','Rapidità','Intimidire','Indistruttibile','Legame vitale','Protezione','Raggiungere','Travolgere','Passa-isole','Passa-foreste','Passa-montagne','Passa-paludi','Anti-malocchio','Furtività','Ombra','Rigenerare','Attacco letale','Velo'];
     const apiKey = ""; // Gestita dall'ambiente
 
     // --- Asset & Core Functions ---
@@ -193,7 +230,7 @@
             const img = new Image();
             img.crossOrigin = "Anonymous";
             img.onload = () => resolve(img);
-            img.onerror = () => reject(`Impossibile caricare l'asset da ${src}`);
+            img.onerror = (e) => reject(`Impossibile caricare l'asset da ${src}. Errore: ${e}`);
             img.src = src;
         });
     }
@@ -204,14 +241,14 @@
             if (!assets.frames[style]) assets.frames[style] = {};
             for (const color in FRAME_ASSETS[style]) {
                 const url = MTG_CARDSMITH_BASE + FRAME_ASSETS[style][color];
-                assetPromises.push(loadImage(url).then(img => { assets.frames[style][color] = img; }));
+                assetPromises.push(loadImage(url).then(img => { assets.frames[style][color] = img; }).catch(e => console.warn(e)));
             }
         }
         for (const style in PT_BOX_ASSETS) {
              if (!assets.ptBox[style]) assets.ptBox[style] = {};
             for (const color in PT_BOX_ASSETS[style]) {
                 const url = MTG_CARDSMITH_BASE + PT_BOX_ASSETS[style][color];
-                assetPromises.push(loadImage(url).then(img => { assets.ptBox[style][color] = img; }));
+                assetPromises.push(loadImage(url).then(img => { assets.ptBox[style][color] = img; }).catch(e => console.warn(e)));
             }
         }
 
@@ -223,7 +260,7 @@
             generateBtn.className = 'beleren-font bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold py-3 px-10 rounded-lg shadow-lg transform hover:scale-105 transition-transform duration-300';
         } catch (error) {
             console.error(error);
-            initialLoadingOverlay.innerHTML = `<div class="text-center text-red-400 p-8"><p class="beleren-font text-2xl">Errore Critico</p><p class="mt-2">${error}</p><p class="text-sm mt-2">Nota: Il caricamento diretto da mtgcardsmith.com potrebbe essere bloccato dal browser per motivi di sicurezza (CORS).</p></div>`;
+            initialLoadingOverlay.innerHTML = `<div class="text-center text-red-400 p-8"><p class="beleren-font text-2xl">Errore Critico</p><p class="mt-2">${error}</p><p class="text-sm mt-2">Nota: Il caricamento diretto da mtgcardsmith.com potrebbe essere bloccato dal browser per motivi di sicurezza (CORS). Ricarica la pagina per riprovare.</p></div>`;
         }
     }
     
@@ -235,11 +272,13 @@
             const symbolPromises = result.data.map(symbolData => {
                 return new Promise(async (resolve) => {
                     try {
-                        await new Promise(r => setTimeout(r, 50)); // Rate limit
-                        const symbolImage = await loadImage(symbolData.svg_uri, true);
-                        assets.symbols[symbolData.symbol] = symbolImage;
+                        if (symbolData.svg_uri) {
+                            await new Promise(r => setTimeout(r, 50)); // Rate limit
+                            const symbolImage = await loadImage(symbolData.svg_uri, true);
+                            assets.symbols[symbolData.symbol] = symbolImage;
+                        }
                     } catch (e) {
-                         console.error(`Fallito il caricamento del simbolo: ${symbolData.symbol}`);
+                         console.warn(`Fallito il caricamento del simbolo: ${symbolData.symbol}`);
                     }
                     resolve();
                 });
@@ -252,6 +291,17 @@
     }
 
     // --- Canvas Rendering ---
+    
+    function drawFittingText(ctx, text, initialFont, maxWidth) {
+        let fontSize = parseInt(initialFont.split('px')[0]);
+        let fontName = initialFont.split('px')[1];
+        ctx.font = initialFont;
+        while (ctx.measureText(text).width > maxWidth && fontSize > 8) {
+            fontSize--;
+            ctx.font = `${fontSize}px${fontName}`;
+        }
+        return ctx.font;
+    }
 
     async function renderCardOnCanvas(cardData, canvas) {
         const ctx = canvas.getContext('2d');
@@ -298,12 +348,12 @@
             Object.assign(ctx, { shadowColor: 'rgba(0,0,0,0.8)', shadowBlur: 4, shadowOffsetX: 2, shadowOffsetY: 2 });
         }
 
-        ctx.font = "bold 18px 'Beleren Smallcaps'";
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
+        ctx.font = drawFittingText(ctx, cardData.name, "bold 18px 'Beleren Smallcaps'", 280);
         ctx.fillText(cardData.name, 32, 40); 
-
-        ctx.font = "bold 16px 'Beleren Smallcaps'";
+        
+        ctx.font = drawFittingText(ctx, cardData.type, "bold 16px 'Beleren Smallcaps'", 280);
         ctx.fillText(cardData.type, 32, 310);
         
         drawSetSymbol(ctx, cardData.rarity, 341, 310);
@@ -312,13 +362,7 @@
         ctx.textAlign = 'left';
         ctx.textBaseline = 'alphabetic';
         
-        const { abilityText, flavorText } = separateTexts(cardData.text, cardData.flavorText);
-        let textY = await drawTextWithMana(ctx, abilityText, 35, 346, 305, 18); 
-
-        if (flavorText) {
-            ctx.font = `italic 15px 'MPlantin'`;
-            await drawTextWithMana(ctx, flavorText, 35, textY + 18, 305, 18);
-        }
+        await drawTextWithMana(ctx, cardData.text || '', 35, 346, 305, 18); 
 
         await drawManaCost(ctx, cardData.manaCost, 345, 40);
         
@@ -331,10 +375,6 @@
         ctx.restore();
     }
     
-    function separateTexts(ability, flavor) {
-        return { abilityText: (ability || "").trim(), flavorText: (flavor || "").trim() };
-    }
-
     async function drawManaCost(ctx, cost, x, y) {
         if (!cost) return;
         const symbols = cost.match(/\{[^{}]+\}/g) || [];
@@ -352,12 +392,17 @@
     }
     
     function drawSetSymbol(ctx, rarity, x, y) {
-        const radius = 8, centerX = x - radius, centerY = y;
+        const radius = 8;
+        const centerX = x - radius;
+        const centerY = y;
         ctx.beginPath();
         ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI, false);
         const rarityColors = { 'Uncommon': '#c0c0c0', 'Rare': '#ffd700', 'Mythic': '#ff4500' };
         ctx.fillStyle = rarityColors[rarity] || 'black';
         ctx.fill();
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 1;
+        ctx.stroke();
     }
 
     async function drawTextWithMana(ctx, text, x, y, maxWidth, initialLineHeight) {
@@ -425,6 +470,10 @@
         generateBtn.textContent = isLoading ? "Generazione..." : 'Genera Carte';
         generateBtn.classList.toggle('opacity-50', isLoading);
         generateBtn.classList.toggle('cursor-not-allowed', isLoading);
+        if (!isLoading) {
+            timeEstimation.textContent = '';
+            loadingIndicator.classList.remove('desktop-sticky');
+        }
     };
 
     const showError = (message) => {
@@ -440,7 +489,6 @@
             <div><label>Costo:</label><input type="text" value="${cardData.manaCost || ''}"></div>
             <div><label>Tipo:</label><input type="text" value="${cardData.type || ''}"></div>
             <div><label>Testo:</label><textarea rows="3">${cardData.text || ''}</textarea></div>
-            <div><label>Flavor:</label><textarea rows="2">${cardData.flavorText || ''}</textarea></div>
             <div class="grid grid-cols-2 gap-2">
                 <div><label>Forza:</label><input type="text" value="${cardData.power || ''}"></div>
                 <div><label>Cost.:</label><input type="text" value="${cardData.toughness || ''}"></div>
@@ -461,9 +509,8 @@
             updatedCardData.manaCost = inputs[1].value;
             updatedCardData.type = inputs[2].value;
             updatedCardData.text = inputs[3].value;
-            updatedCardData.flavorText = inputs[4].value;
-            updatedCardData.power = inputs[5].value;
-            updatedCardData.toughness = inputs[6].value;
+            updatedCardData.power = inputs[4].value;
+            updatedCardData.toughness = inputs[5].value;
             
             renderCardOnCanvas(updatedCardData, canvas);
             form.remove();
@@ -505,17 +552,91 @@
     
     // --- Main Generation Logic ---
 
+    function shuffleArray(array) {
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
+        }
+    }
+
+    function createSetBlueprint(totalCount) {
+        const blueprint = Array.from({ length: totalCount }, () => ({}));
+
+        // 1. Assign Rarities
+        const rarities = [];
+        const mythicCount = Math.round(totalCount * 0.075);
+        const rareCount = Math.round(totalCount * 0.225);
+        const uncommonCount = Math.round(totalCount * 0.38);
+        const commonCount = totalCount - mythicCount - rareCount - uncommonCount;
+        for (let i = 0; i < mythicCount; i++) rarities.push('Mythic');
+        for (let i = 0; i < rareCount; i++) rarities.push('Rare');
+        for (let i = 0; i < uncommonCount; i++) rarities.push('Uncommon');
+        for (let i = 0; i < commonCount; i++) rarities.push('Common');
+        shuffleArray(rarities);
+        blueprint.forEach((card, i) => card.rarity = rarities[i]);
+
+        // 2. Assign Types
+        const types = [];
+        const creatureCount = Math.round(totalCount * 0.55);
+        const spellCount = Math.round(totalCount * 0.28);
+        const permanentCount = Math.round(totalCount * 0.12);
+        const landCount = totalCount - creatureCount - spellCount - permanentCount;
+        for (let i = 0; i < creatureCount; i++) types.push('Creatura');
+        for (let i = 0; i < spellCount; i++) types.push('Istantaneo o Stregoneria');
+        for (let i = 0; i < permanentCount; i++) types.push('Incantesimo o Artefatto');
+        for (let i = 0; i < landCount; i++) types.push('Terra non base');
+        shuffleArray(types);
+        blueprint.forEach((card, i) => card.type = types[i]);
+
+        // 3. Assign Colors
+        const colors = [];
+        const nonLandCards = blueprint.filter(card => card.type !== 'Terra non base');
+        const nonLandCount = nonLandCards.length;
+        
+        const multicolorCount = Math.round(nonLandCount * 0.13);
+        const colorlessCount = Math.round(nonLandCount * 0.08);
+        const monocolorTotal = nonLandCount - multicolorCount - colorlessCount;
+        const perColorCount = Math.floor(monocolorTotal / 5);
+        
+        for (let i = 0; i < multicolorCount; i++) colors.push('Gold');
+        for (let i = 0; i < colorlessCount; i++) colors.push('Artifact');
+        ['White', 'Blue', 'Black', 'Red', 'Green'].forEach(color => {
+            for (let i = 0; i < perColorCount; i++) colors.push(color);
+        });
+        // Distribute remaining monocolor cards
+        const remainder = monocolorTotal % 5;
+        const allColors = ['White', 'Blue', 'Black', 'Red', 'Green'];
+        shuffleArray(allColors);
+        for(let i=0; i<remainder; i++) colors.push(allColors[i]);
+
+        shuffleArray(colors);
+        
+        let colorIndex = 0;
+        blueprint.forEach(card => {
+            if (card.type === 'Terra non base') {
+                card.colorIdentity = 'Land';
+            } else if (colorIndex < colors.length) {
+                card.colorIdentity = colors[colorIndex++];
+            } else { // Fallback
+                card.colorIdentity = 'Artifact';
+            }
+        });
+
+        return blueprint;
+    }
+
     async function robustFetch(url, payload, retries = 3) {
         for (let i = 0; i < retries; i++) {
+            if (isGenerationStopped) throw new Error("Generazione interrotta dall'utente.");
             try {
-                // ** FIX: Correctly append API key for POST requests **
                 const response = await fetch(`${url}?key=${apiKey}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                 if (response.ok) return await response.json();
-                if (response.status === 429) { // Too Many Requests
+                if (response.status === 429) { 
                     console.warn(`Rate limit hit. Tentativo ${i + 1}. Attendo...`);
-                    await new Promise(res => setTimeout(res, 2000 * (i + 1))); // Exponential backoff
+                    await new Promise(res => setTimeout(res, 2000 * (i + 1))); 
                 } else {
-                    throw new Error(`API Error: ${response.status}`);
+                    const errorBody = await response.text();
+                    throw new Error(`API Error: ${response.status}. Body: ${errorBody}`);
                 }
             } catch (error) {
                 console.error(`Fetch fallito (tentativo ${i + 1}):`, error);
@@ -524,114 +645,165 @@
         }
     }
 
-    async function processCardQueue(cardElements, index) {
+    async function generateCardText(theme, cardBlueprint, history) {
+        const historyPrompt = history.length > 0
+            ? `Finora, hai creato le seguenti carte in questo set: ${history}. Basandoti su queste, crea la nuova carta.`
+            : `Questa è l'inizio di un nuovo set. Crea la prima carta.`;
+
+        const instructionPrompt = `Crea una carta di Magic: The Gathering per un set a tema "${theme}". La carta DEVE rispettare queste specifiche: Tipo: ${cardBlueprint.type}, Rarità: ${cardBlueprint.rarity}, Colore: ${cardBlueprint.colorIdentity}. ${historyPrompt} TUTTO il testo della carta, inclusi i nomi delle abilità, DEVE essere in italiano. Utilizza le abilità ufficiali italiane quando possibile, come: ${ITALIAN_KEYWORDS.join(', ')}. La carta deve essere bilanciata. Il formato del costo di mana deve essere corretto (es. {2}{W}{U}). Fornisci un oggetto JSON con: name, manaCost, type (in italiano, specifico, es. 'Creatura - Guerriero Umano'), text (in italiano, con simboli mana), power (per creature), toughness (per creature), artDescription (descrizione vivida per AI). L'oggetto JSON DEVE avere i campi "colorIdentity", "rarity" e "frame_style" impostati rispettivamente a "${cardBlueprint.colorIdentity}", "${cardBlueprint.rarity}" e "Standard Colors". NON includere 'flavorText'. Rispondi solo con un oggetto JSON valido.`;
+        
+        const textGenPayload = {
+            contents: [{ role: "user", parts: [{ text: instructionPrompt }] }],
+            generationConfig: { responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { "name": { "type": "STRING" }, "manaCost": { "type": "STRING" }, "colorIdentity": { "type": "STRING" }, "rarity": { "type": "STRING" }, "type": { "type": "STRING" }, "frame_style": { "type": "STRING" }, "text": { "type": "STRING" }, "power": { "type": "STRING" }, "toughness": { "type": "STRING" }, "artDescription": { "type": "STRING" } }, required: ["name", "manaCost", "colorIdentity", "rarity", "type", "frame_style", "text", "artDescription"] } }
+        };
+        const textResult = await robustFetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`, textGenPayload);
+        return JSON.parse(textResult.candidates[0].content.parts[0].text);
+    }
+
+    function updateEstimatedTime(completedCount, totalCount) {
+        const elapsedTime = (Date.now() - generationStartTime) / 1000; // in seconds
+        if (completedCount === 0) return;
+        const avgTimePerCard = elapsedTime / completedCount;
+        const remainingCards = totalCount - completedCount;
+        const estimatedSeconds = Math.round(avgTimePerCard * remainingCards);
+
+        if (estimatedSeconds > 60) {
+            timeEstimation.textContent = `Tempo stimato rimanente: ~${Math.ceil(estimatedSeconds / 60)} minuti.`;
+        } else {
+            timeEstimation.textContent = `Tempo stimato rimanente: ~${estimatedSeconds} secondi.`;
+        }
+    }
+
+    async function processCardQueue(cardElements, blueprint, index, theme) {
         if (index >= cardElements.length || isGenerationStopped) {
             showLoading(false, isGenerationStopped ? "Generazione interrotta." : "Generazione completata!");
-            if (cardElements.length > 0 && !isGenerationStopped) bulkDownloadContainer.classList.remove('hidden');
+            if (generatedCards.some(c => c) && !isGenerationStopped) bulkDownloadContainer.classList.remove('hidden');
             return;
         }
 
         const el = cardElements[index];
-        showLoading(true, `Generando arte per "${el.cardData.name}" (${index + 1}/${cardElements.length})...`);
+        const cardBlueprint = blueprint[index];
         
         try {
-            const artPrompt = `Magic: The Gathering card art, epic, high fantasy digital painting. Subject: ${el.cardData.artDescription}`;
+            // 1. Generate Text with context
+            showLoading(true, `Generando testo per carta ${index + 1}/${cardElements.length}...`);
+            const contextSummary = generatedCards.slice(0, index).filter(c => c).map(c => `${c.name} (${c.type})`).join(', ');
+            const cardData = await generateCardText(theme, cardBlueprint, contextSummary);
+            if (isGenerationStopped) return;
+            generatedCards[index] = cardData; 
+            
+            // 2. Generate Art
+            showLoading(true, `Generando arte per "${cardData.name}" (${index + 1}/${cardElements.length})...`);
+            updateEstimatedTime(index + 1, cardElements.length);
+            const artPrompt = `Magic: The Gathering card art, epic, high fantasy digital painting. Subject: ${cardData.artDescription}`;
             const imagePayload = { instances: [{ prompt: artPrompt }], parameters: { "sampleCount": 1 } };
             const imageResult = await robustFetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict`, imagePayload);
-            
-            if (imageResult.predictions?.[0]?.bytesBase64Encoded) {
-                el.cardData.artImage = await loadImage(`data:image/png;base64,${imageResult.predictions[0].bytesBase64Encoded}`);
-            }
-        } catch (imgError) {
-            console.error(`Errore generazione immagine per ${el.cardData.name}:`, imgError);
-            el.wrapper.innerHTML += `<p class="text-red-400 text-xs text-center">Errore Immagine</p>`;
-        }
+            if (isGenerationStopped) return;
 
-        await renderCardOnCanvas(el.cardData, el.canvas);
-        el.loadingAnimation.remove();
+            if (imageResult.predictions?.[0]?.bytesBase64Encoded) {
+                cardData.artImage = await loadImage(`data:image/png;base64,${imageResult.predictions[0].bytesBase64Encoded}`);
+            }
+
+            // 3. Render
+            await renderCardOnCanvas(cardData, el.canvas);
+            el.loadingAnimation.remove();
+
+        } catch (error) {
+            console.error(`Errore generazione carta ${index + 1}:`, error);
+            if (!isGenerationStopped) {
+                el.wrapper.innerHTML += `<p class="text-red-400 text-xs text-center">Errore Generazione</p>`;
+                el.loadingAnimation.remove();
+            }
+        }
         
-        setTimeout(() => processCardQueue(cardElements, index + 1), 500);
+        generationTimeoutId = setTimeout(() => processCardQueue(cardElements, blueprint, index + 1, theme), 200);
     }
 
     generateBtn.addEventListener('click', async () => {
         isGenerationStopped = false;
         const theme = document.getElementById('set-theme').value;
-        const count = document.getElementById('card-count').value;
+        const count = parseInt(document.getElementById('card-count').value, 10);
         if (!theme) { showError('Per favore, inserisci un tema per il set.'); return; }
         
-        showLoading(true, `Recupero i dati per ${count} carte...`);
+        const setBlueprint = createSetBlueprint(count);
+        
+        showLoading(true, `Preparazione per la generazione di ${count} carte...`);
+        loadingIndicatorOriginalTop = loadingIndicator.offsetTop;
         cardDisplayArea.innerHTML = '';
         errorMessage.classList.add('hidden');
         bulkDownloadContainer.classList.add('hidden');
-        generatedCards = []; // Reset the in-memory store
+        generatedCards = new Array(count).fill(null); 
+        generationStartTime = Date.now();
 
-        const textGenPrompt = `Crea ${count} carte di Magic: The Gathering con tema "${theme}". Non creare carte di tipo Terra. La maggior parte delle carte deve essere monocolore. Per ogni carta, fornisci un oggetto JSON con: name, manaCost, colorIdentity (uno tra 'White', 'Blue', 'Black', 'Red', 'Green', 'Gold', 'Artifact', 'Colorless'), rarity (uno tra 'Common', 'Uncommon', 'Rare', 'Mythic'), type (in italiano, includi 'leggendario' se appropriato), frame_style (uno tra 'Standard Colors', 'Borderless'), text (in italiano, con simboli mana tipo {sym} e \\n per a capo), flavorText (opzionale), power (per creature), toughness (per creature), artDescription (descrizione vivida per AI). Rispondi solo con un array di oggetti JSON.`;
+        const cardSkeletons = Array.from({ length: count }, (_, i) => {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'card-wrapper';
+            wrapper.dataset.cardIndex = i;
 
-        try {
-            const textGenPayload = { 
-                contents: [{ role: "user", parts: [{ text: textGenPrompt }] }],
-                generationConfig: { responseMimeType: "application/json", responseSchema: { type: "ARRAY", items: { type: "OBJECT", properties: { "name": { "type": "STRING" }, "manaCost": { "type": "STRING" }, "colorIdentity": { "type": "STRING" }, "rarity": { "type": "STRING" }, "type": { "type": "STRING" }, "frame_style": { "type": "STRING" }, "text": { "type": "STRING" }, "flavorText": { "type": "STRING" }, "power": { "type": "STRING" }, "toughness": { "type": "STRING" }, "artDescription": { "type": "STRING" } }, required: ["name", "manaCost", "colorIdentity", "rarity", "type", "frame_style", "text", "artDescription"] } } }
+            const canvas = document.createElement('canvas');
+            canvas.width = CARD_WIDTH;
+            canvas.height = CARD_HEIGHT;
+            
+            const loadingAnimation = wrapper.appendChild(document.createElement('div'));
+            loadingAnimation.className = 'card-loader';
+            loadingAnimation.innerHTML = '<svg class="animate-spin h-8 w-8 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>';
+            
+            const buttonGroup = document.createElement('div');
+            buttonGroup.className = 'flex flex-wrap justify-center gap-2 mt-2';
+            
+            const downloadButton = document.createElement('button');
+            downloadButton.innerHTML = 'Scarica';
+            downloadButton.className = 'bg-green-600 hover:bg-green-700 text-white font-bold py-1 px-3 rounded-lg text-xs';
+            downloadButton.onclick = () => downloadCard(canvas, generatedCards[i]?.name || `carta-${i+1}`);
+
+            const editButton = document.createElement('button');
+            editButton.innerHTML = 'Modifica';
+            editButton.className = 'bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded-lg text-xs';
+            editButton.onclick = () => {
+                const cardIndex = parseInt(wrapper.dataset.cardIndex);
+                const currentCardData = generatedCards[cardIndex];
+                if (!currentCardData) return;
+                const form = createInlineEditForm(currentCardData, wrapper, cardIndex);
+                canvas.style.display = 'none';
+                wrapper.insertBefore(form, buttonGroup);
             };
-            const textResult = await robustFetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`, textGenPayload);
-            generatedCards = JSON.parse(textResult.candidates[0].content.parts[0].text);
 
-            const cardElements = generatedCards.map((cardData, i) => {
-                const wrapper = document.createElement('div');
-                wrapper.className = 'card-wrapper';
-                wrapper.dataset.cardIndex = i; // Use index to reference in-memory array
+            const regenArtButton = document.createElement('button');
+            regenArtButton.innerHTML = 'Rigenera Arte';
+            regenArtButton.className = 'bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-1 px-3 rounded-lg text-xs';
+            regenArtButton.onclick = () => regenerateArt(wrapper, parseInt(wrapper.dataset.cardIndex));
 
-                const canvas = document.createElement('canvas');
-                canvas.width = CARD_WIDTH;
-                canvas.height = CARD_HEIGHT;
-                
-                const loadingAnimation = wrapper.appendChild(document.createElement('div'));
-                loadingAnimation.className = 'card-loader';
-                loadingAnimation.innerHTML = '<svg class="animate-spin h-8 w-8 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>';
-                
-                const buttonGroup = document.createElement('div');
-                buttonGroup.className = 'flex flex-wrap justify-center gap-2 mt-2';
-                
-                const downloadButton = document.createElement('button');
-                downloadButton.innerHTML = 'Scarica';
-                downloadButton.className = 'bg-green-600 hover:bg-green-700 text-white font-bold py-1 px-3 rounded-lg text-xs';
-                downloadButton.onclick = () => downloadCard(canvas, generatedCards[i].name);
+            buttonGroup.append(downloadButton, editButton, regenArtButton);
+            wrapper.append(canvas, buttonGroup);
+            cardDisplayArea.appendChild(wrapper);
+            return { wrapper, canvas, loadingAnimation };
+        });
 
-                const editButton = document.createElement('button');
-                editButton.innerHTML = 'Modifica';
-                editButton.className = 'bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded-lg text-xs';
-                editButton.onclick = () => {
-                    const cardIndex = parseInt(wrapper.dataset.cardIndex);
-                    const currentCardData = generatedCards[cardIndex];
-                    const form = createInlineEditForm(currentCardData, wrapper, cardIndex);
-                    canvas.style.display = 'none';
-                    wrapper.insertBefore(form, buttonGroup);
-                };
-
-                const regenArtButton = document.createElement('button');
-                regenArtButton.innerHTML = 'Rigenera Arte';
-                regenArtButton.className = 'bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-1 px-3 rounded-lg text-xs';
-                regenArtButton.onclick = () => regenerateArt(wrapper, parseInt(wrapper.dataset.cardIndex));
-
-                buttonGroup.append(downloadButton, editButton, regenArtButton);
-                wrapper.append(canvas, buttonGroup);
-                cardDisplayArea.appendChild(wrapper);
-                return { wrapper, canvas, cardData, loadingAnimation };
-            });
-
-            processCardQueue(cardElements, 0);
-
-        } catch (error) {
-            console.error('Errore durante la generazione:', error);
-            showError(`Si è verificato un errore: ${error.message}.`);
-            showLoading(false);
-        }
+        processCardQueue(cardSkeletons, setBlueprint, 0, theme);
     });
     
-    document.addEventListener('DOMContentLoaded', preloadAssets);
-    stopBtn.addEventListener('click', () => { isGenerationStopped = true; });
+    stopBtn.addEventListener('click', () => {
+        isGenerationStopped = true;
+        if(generationTimeoutId) {
+            clearTimeout(generationTimeoutId);
+            generationTimeoutId = null;
+        }
+        showLoading(false, "Generazione interrotta dall'utente.");
+        
+        const allWrappers = cardDisplayArea.querySelectorAll('.card-wrapper');
+        allWrappers.forEach(wrapper => {
+            const cardIndex = parseInt(wrapper.dataset.cardIndex, 10);
+            if (!generatedCards[cardIndex]) {
+                wrapper.remove();
+            }
+        });
+        if (generatedCards.some(c => c)) bulkDownloadContainer.classList.remove('hidden');
+    });
+
     bulkDownloadBtn.addEventListener('click', () => {
         const zip = new JSZip();
         generatedCards.forEach((cardData, i) => {
+            if (!cardData) return;
             const wrapper = cardDisplayArea.querySelector(`[data-card-index='${i}']`);
             if (wrapper) {
                 const canvas = wrapper.querySelector('canvas');
@@ -645,6 +817,20 @@
             link.download = "carte_generate.zip";
             link.click();
         });
+    });
+    
+    document.addEventListener('DOMContentLoaded', preloadAssets);
+
+    window.addEventListener('scroll', () => {
+        if (window.innerWidth < 768 || loadingIndicator.classList.contains('hidden')) {
+            loadingIndicator.classList.remove('desktop-sticky');
+            return;
+        }
+        if (window.scrollY > loadingIndicatorOriginalTop) {
+            loadingIndicator.classList.add('desktop-sticky');
+        } else {
+            loadingIndicator.classList.remove('desktop-sticky');
+        }
     });
 
 </script>
