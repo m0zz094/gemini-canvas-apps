@@ -472,6 +472,28 @@
         class="hidden text-center my-10 bg-red-500/20 text-red-300 p-4 rounded-lg"
       ></div>
 
+      <!-- Area per mostrare la meccanica del set -->
+      <div
+        id="set-mechanic-display"
+        class="hidden mx-auto mb-8 p-6 bg-gradient-to-r from-purple-900/30 to-blue-900/30 rounded-lg border border-purple-500/30 max-w-4xl"
+      >
+        <h3
+          class="text-xl font-bold text-purple-300 mb-3 beleren-font text-center"
+        >
+          Meccanica del Set
+        </h3>
+        <div class="bg-black/20 p-4 rounded-lg">
+          <h4
+            id="mechanic-name"
+            class="text-lg font-bold text-yellow-300 mb-2"
+          ></h4>
+          <p id="mechanic-description" class="text-gray-300 mb-3"></p>
+          <div class="text-sm text-gray-400">
+            <strong>Flavor:</strong> <span id="mechanic-flavor"></span>
+          </div>
+        </div>
+      </div>
+
       <div
         id="card-display-area"
         class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-8 justify-items-center"
@@ -815,9 +837,26 @@
             cardData.type.toLowerCase().includes("planeswalker")) ||
           cardData.startingLoyalty !== undefined ||
           (cardData.abilities && Array.isArray(cardData.abilities)) ||
+          // Controllo più specifico per abilità di loyalty nel testo
           (cardData.text &&
-            cardData.text.includes(":") &&
-            (cardData.text.includes("+") || cardData.text.includes("-")));
+            (/^[+-]\d+:\s/.test(cardData.text.trim()) || // Inizia con +/- numero e due punti
+              cardData.text.includes("\n+") || // Contiene newline seguita da +
+              cardData.text.includes("\n-") || // Contiene newline seguita da -
+              cardData.text.includes("\n0:"))); // Contiene newline seguita da 0:
+
+        console.log(`Planeswalker detection for ${cardData.name}:`, {
+          type: cardData.type,
+          hasTypeKeyword: cardData.type?.toLowerCase().includes("planeswalker"),
+          hasStartingLoyalty: cardData.startingLoyalty !== undefined,
+          hasAbilities: cardData.abilities && Array.isArray(cardData.abilities),
+          hasLoyaltyText:
+            cardData.text &&
+            (/^[+-]\d+:\s/.test(cardData.text.trim()) ||
+              cardData.text.includes("\n+") ||
+              cardData.text.includes("\n-") ||
+              cardData.text.includes("\n0:")),
+          finalDecision: isPlaneswalker,
+        });
 
         // Forza SEMPRE il frame_style per i planeswalker, con controlli multipli
         if (isPlaneswalker) {
@@ -2085,7 +2124,8 @@
       function createSetBlueprint(
         totalCount,
         selectedColors = [],
-        mode = "single"
+        mode = "single",
+        setMechanic = null
       ) {
         const blueprint = Array.from({ length: totalCount }, () => ({}));
 
@@ -2102,6 +2142,7 @@
                   ? selectedColors[0]
                   : null, // null indica che l'AI deve decidere
               specificColors: selectedColors, // Passa i colori specifici
+              setMechanic: null, // Carte singole non usano meccaniche del set
             };
           }
           return blueprint;
@@ -2285,6 +2326,29 @@
           }
         });
 
+        // 4. Distribuisci la meccanica del set (se presente) al ~30% delle carte
+        if (setMechanic) {
+          const mechanicTargetCount = Math.floor(totalCount * 0.3);
+          const mechanicIndices = [];
+
+          // Seleziona casualmente le carte che avranno la meccanica
+          while (mechanicIndices.length < mechanicTargetCount) {
+            const randomIndex = Math.floor(Math.random() * totalCount);
+            if (!mechanicIndices.includes(randomIndex)) {
+              mechanicIndices.push(randomIndex);
+            }
+          }
+
+          mechanicIndices.forEach((index) => {
+            blueprint[index].setMechanic = setMechanic;
+          });
+
+          console.log(
+            `Set mechanic "${setMechanic.name}" distributed to ${mechanicTargetCount} cards out of ${totalCount}:`,
+            mechanicIndices
+          );
+        }
+
         return blueprint;
       }
 
@@ -2356,6 +2420,17 @@
         const autoColorIdentity =
           cardBlueprint.colorIdentity || "DA_DETERMINARE_DA_MANA_COST";
 
+        // Prepara informazioni sulla meccanica del set (se presente)
+        const setMechanicPrompt = cardBlueprint.setMechanic
+          ? `
+MECCANICA DEL SET:
+Questa carta DEVE utilizzare la meccanica del set "${cardBlueprint.setMechanic.name}".
+Descrizione: ${cardBlueprint.setMechanic.description}
+Keyword: ${cardBlueprint.setMechanic.keywordDescription}
+Integra questa meccanica nel testo della carta in modo naturale e tematico.
+`
+          : "";
+
         let instructionPrompt;
 
         if (isFreeForm) {
@@ -2388,7 +2463,7 @@ SE CREI UN PLANESWALKER, usa il formato strutturato OBBLIGATORIO:
             ? "Borderless"
             : "Standard Colors";
 
-          instructionPrompt = `Crea una carta di Magic: The Gathering basata ESATTAMENTE su questo tema: "${theme}". ${planeswalkerHint}La carta DEVE utilizzare ${colorDescription}. Se sono specificati più colori, la carta DEVE essere multicolore e includere TUTTI i colori nel costo di mana. ${historyPrompt} TUTTO il testo della carta DEVE essere in italiano. Il formato del costo di mana deve essere corretto (es. {2}{W}{U}).${planeswalkerFormatHint} Fornisci un oggetto JSON con: name, manaCost (DEVE includere tutti i colori specificati), type (in italiano, es. 'Planeswalker - Nome' se è un planeswalker, 'Creatura - Tipo' se è una creatura, etc.), text (in italiano, solo per NON-planeswalker), abilities (array strutturato, solo per planeswalker), power (per creature), toughness (per creature), startingLoyalty (per planeswalker), artDescription. IMPORTANTE: L'oggetto JSON deve avere "colorIdentity" basato sui colori del manaCost (W per bianco, U per blu, B per nero, R per rosso, G per verde, Gold per multicolore, Artifact se nessun colore), "rarity" impostato a "${cardBlueprint.rarity}" e "frame_style" a "${frameStyleForSingle}". Rispondi solo con un oggetto JSON valido.`;
+          instructionPrompt = `Crea una carta di Magic: The Gathering basata ESATTAMENTE su questo tema: "${theme}". ${planeswalkerHint}La carta DEVE utilizzare ${colorDescription}. Se sono specificati più colori, la carta DEVE essere multicolore e includere TUTTI i colori nel costo di mana. ${historyPrompt} TUTTO il testo della carta DEVE essere in italiano. Il formato del costo di mana deve essere corretto (es. {2}{W}{U}).${setMechanicPrompt}${planeswalkerFormatHint} Fornisci un oggetto JSON con: name, manaCost (DEVE includere tutti i colori specificati), type (in italiano, es. 'Planeswalker - Nome' se è un planeswalker, 'Creatura - Tipo' se è una creatura, etc.), text (in italiano, solo per NON-planeswalker), abilities (array strutturato, solo per planeswalker), power (per creature), toughness (per creature), startingLoyalty (per planeswalker), artDescription. IMPORTANTE: L'oggetto JSON deve avere "colorIdentity" basato sui colori del manaCost (W per bianco, U per blu, B per nero, R per rosso, G per verde, Gold per multicolore, Artifact se nessun colore), "rarity" impostato a "${cardBlueprint.rarity}" e "frame_style" a "${frameStyleForSingle}". Rispondi solo con un oggetto JSON valido.`;
         } else if (isPlaneswalker) {
           // Aggiungi regole specifiche per la rarità del planeswalker
           const rarityRules =
@@ -2405,7 +2480,7 @@ REGOLE PER PLANESWALKER RARE/MYTHIC:
 - Includi un'abilità ultimate potente (tipicamente -6 o -7)
 - Le abilità devono essere proporzionate alla rarità`;
 
-          instructionPrompt = `Crea un Planeswalker di Magic: The Gathering per un set a tema "${theme}". Il planeswalker DEVE utilizzare ${colorDescription}. Se sono specificati più colori, DEVE essere multicolore e includere TUTTI i colori nel costo di mana. ${historyPrompt} TUTTO il testo della carta DEVE essere in italiano. 
+          instructionPrompt = `Crea un Planeswalker di Magic: The Gathering per un set a tema "${theme}". Il planeswalker DEVE utilizzare ${colorDescription}. Se sono specificati più colori, DEVE essere multicolore e includere TUTTI i colori nel costo di mana. ${historyPrompt} TUTTO il testo della carta DEVE essere in italiano. ${setMechanicPrompt}
 
 FORMATO STRUTTURATO OBBLIGATORIO - Invece del campo "text", usa il campo "abilities" che deve essere un array di oggetti con questa struttura ESATTA:
 
@@ -2463,7 +2538,7 @@ Fornisci un oggetto JSON con: name, manaCost (DEVE includere tutti i colori spec
             cardBlueprint.colorIdentity === "Gold"
               ? "multicolore"
               : cardBlueprint.colorIdentity;
-          instructionPrompt = `Crea un Commander (Creatura Leggendaria) di Magic: The Gathering per un mazzo Commander a tema "${theme}". Il commander DEVE essere: Tipo: Creatura Leggendaria, Rarità: Mythic, Colori: ${allSelectedColors}. ${historyPrompt} TUTTO il testo della carta DEVE essere in italiano. I commander sono creature leggendarie potenti che definiscono l'identità del mazzo. Fornisci un oggetto JSON con: name, manaCost (deve includere TUTTI i colori selezionati), type (in italiano, es. 'Creatura Leggendaria - Drago Guerriero'), text (abilità potenti adatte a un commander), power, toughness, artDescription. L'oggetto JSON DEVE avere "colorIdentity", "rarity" e "frame_style" impostati a "${cardBlueprint.colorIdentity}", "${cardBlueprint.rarity}" e "Standard Colors". Rispondi solo con un oggetto JSON valido.`;
+          instructionPrompt = `Crea un Commander (Creatura Leggendaria) di Magic: The Gathering per un mazzo Commander a tema "${theme}". Il commander DEVE essere: Tipo: Creatura Leggendaria, Rarità: Mythic, Colori: ${allSelectedColors}. ${historyPrompt} TUTTO il testo della carta DEVE essere in italiano. I commander sono creature leggendarie potenti che definiscono l'identità del mazzo. ${setMechanicPrompt}Fornisci un oggetto JSON con: name, manaCost (deve includere TUTTI i colori selezionati), type (in italiano, es. 'Creatura Leggendaria - Drago Guerriero'), text (abilità potenti adatte a un commander), power, toughness, artDescription. L'oggetto JSON DEVE avere "colorIdentity", "rarity" e "frame_style" impostati a "${cardBlueprint.colorIdentity}", "${cardBlueprint.rarity}" e "Standard Colors". Rispondi solo con un oggetto JSON valido.`;
         } else {
           // 10% di possibilità per carte borderless (eccetto planeswalker e commander)
           const frameStyle =
@@ -2475,7 +2550,7 @@ Fornisci un oggetto JSON con: name, manaCost (DEVE includere tutti i colori spec
             cardBlueprint.colorIdentity
           }. ${historyPrompt} TUTTO il testo della carta, inclusi i nomi delle abilità, DEVE essere in italiano. Utilizza le abilità ufficiali italiane quando possibili, come: ${ITALIAN_KEYWORDS.join(
             ", "
-          )}. La carta deve essere bilanciata. Il formato del costo di mana deve essere corretto (es. {2}{W}{U}). Fornisci un oggetto JSON con: name, manaCost, type (in italiano, specifico, es. 'Creatura - Guerriero Umano'), text (in italiano, con simboli mana), power (per creature), toughness (per creature), artDescription (descrizione vivida per AI). L'oggetto JSON DEVE avere i campi "colorIdentity", "rarity" e "frame_style" impostati rispettivamente a "${
+          )}. La carta deve essere bilanciata. Il formato del costo di mana deve essere corretto (es. {2}{W}{U}). ${setMechanicPrompt}Fornisci un oggetto JSON con: name, manaCost, type (in italiano, specifico, es. 'Creatura - Guerriero Umano'), text (in italiano, con simboli mana), power (per creature), toughness (per creature), artDescription (descrizione vivida per AI). L'oggetto JSON DEVE avere i campi "colorIdentity", "rarity" e "frame_style" impostati rispettivamente a "${
             cardBlueprint.colorIdentity
           }", "${
             cardBlueprint.rarity
@@ -2548,6 +2623,118 @@ Fornisci un oggetto JSON con: name, manaCost (DEVE includere tutti i colori spec
           textGenPayload
         );
         return JSON.parse(textResult.candidates[0].content.parts[0].text);
+      }
+
+      // Mostra la meccanica del set generata nell'interfaccia
+      function displaySetMechanic(setMechanic) {
+        if (!setMechanic) return;
+
+        const mechanicDisplay = document.getElementById("set-mechanic-display");
+        const mechanicName = document.getElementById("mechanic-name");
+        const mechanicDescription = document.getElementById(
+          "mechanic-description"
+        );
+        const mechanicFlavor = document.getElementById("mechanic-flavor");
+
+        mechanicName.textContent = setMechanic.name;
+        mechanicDescription.textContent = setMechanic.keywordDescription;
+        mechanicFlavor.textContent = setMechanic.flavorDescription;
+
+        mechanicDisplay.classList.remove("hidden");
+        console.log("Set mechanic displayed in UI:", setMechanic.name);
+      }
+
+      // Nasconde la meccanica del set dall'interfaccia
+      function hideSetMechanic() {
+        const mechanicDisplay = document.getElementById("set-mechanic-display");
+        mechanicDisplay.classList.add("hidden");
+      }
+
+      // Genera una meccanica personalizzata per il set
+      async function generateSetMechanic(theme, selectedColors) {
+        console.log("Generating set mechanic for theme:", theme);
+
+        const colorDescription =
+          selectedColors.length > 0
+            ? `usando principalmente i colori ${selectedColors.join(" e ")}`
+            : "utilizzando tutti i colori";
+
+        const instructionPrompt = `Crea una nuova meccanica per un set di Magic: The Gathering a tema "${theme}" ${colorDescription}. 
+
+La meccanica deve essere:
+- Unica e tematica al set
+- Bilanciata e interessante dal punto di vista del gameplay
+- Applicabile a diversi tipi di carte (creature, istantanei, stregonerie, incantesimi)
+- Con un nome evocativo che riflette il tema
+- Non essere una meccanica già esistente di Magic
+
+FORMATO RICHIESTO - Rispondi con un oggetto JSON che contiene:
+{
+  "name": "Nome della meccanica (in italiano)",
+  "description": "Descrizione completa della meccanica con le regole",
+  "keywordDescription": "Descrizione breve per il testo delle carte",
+  "flavorDescription": "Descrizione del flavor e del perché si adatta al tema",
+  "examples": ["Esempio 1", "Esempio 2", "Esempio 3"]
+}
+
+La meccanica deve essere in italiano e adatta al tema "${theme}". Sii creativo ma mantieni la meccanica bilanciata.`;
+
+        try {
+          const mechanicPayload = {
+            contents: [{ role: "user", parts: [{ text: instructionPrompt }] }],
+            generationConfig: {
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: "OBJECT",
+                properties: {
+                  name: { type: "STRING" },
+                  description: { type: "STRING" },
+                  keywordDescription: { type: "STRING" },
+                  flavorDescription: { type: "STRING" },
+                  examples: {
+                    type: "ARRAY",
+                    items: { type: "STRING" },
+                  },
+                },
+                required: [
+                  "name",
+                  "description",
+                  "keywordDescription",
+                  "flavorDescription",
+                  "examples",
+                ],
+              },
+            },
+          };
+
+          const result = await robustFetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`,
+            mechanicPayload
+          );
+
+          const setMechanic = JSON.parse(
+            result.candidates[0].content.parts[0].text
+          );
+          console.log("Generated set mechanic:", setMechanic);
+
+          return setMechanic;
+        } catch (error) {
+          console.error("Error generating set mechanic:", error);
+          return {
+            name: "Risonanza",
+            description:
+              "Risonanza N (Quando questa carta entra nel campo di battaglia, se controlli N o più permanenti con lo stesso nome nell'arte, pesca una carta.)",
+            keywordDescription:
+              "Risonanza (Interagisce con carte simili che controlli)",
+            flavorDescription:
+              "Una meccanica che rappresenta l'armonia e la connessione tra elementi simili nel set.",
+            examples: [
+              "Creatura con Risonanza 2",
+              "Istantaneo con Risonanza 1",
+              "Incantesimo che dona Risonanza",
+            ],
+          };
+        }
       }
 
       function updateEstimatedTime(completedCount, totalCount) {
@@ -2864,7 +3051,30 @@ Fornisci un oggetto JSON con: name, manaCost (DEVE includere tutti i colori spec
 
         const selectedColors = getSelectedColors();
         const mode = document.getElementById("generation-mode").value;
-        const setBlueprint = createSetBlueprint(count, selectedColors, mode);
+
+        // Per i set (non carte singole), genera prima la meccanica del set
+        let setMechanic = null;
+        if (mode !== "single" && count > 1) {
+          showLoading(true, "Generando meccanica del set...");
+          try {
+            setMechanic = await generateSetMechanic(theme, selectedColors);
+            console.log("Set mechanic generated:", setMechanic);
+            displaySetMechanic(setMechanic);
+          } catch (error) {
+            console.error("Failed to generate set mechanic:", error);
+            // Continua senza meccanica se fallisce
+          }
+        } else {
+          // Nascondi la meccanica per carte singole
+          hideSetMechanic();
+        }
+
+        const setBlueprint = createSetBlueprint(
+          count,
+          selectedColors,
+          mode,
+          setMechanic
+        );
 
         showLoading(
           true,
